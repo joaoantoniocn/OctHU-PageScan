@@ -14,25 +14,44 @@ import numpy as np
 from keras_octave_conv import OctaveConv2D, octave_dual
 from residual_functions import *
 from octLayers import *
+import tensorflow as tf
+import parser_img
+
+def liberando_memoria_gpu():
+	gpus = tf.config.experimental.list_physical_devices('GPU')
+	if gpus:
+		try:
+			# Currently, memory growth needs to be the same across GPUs
+			for gpu in gpus:
+				tf.config.experimental.set_memory_growth(gpu, True)
+			logical_gpus = tf.config.experimental.list_logical_devices('GPU')
+			print(len(gpus), "Physical GPUs,", len(logical_gpus), "Logical GPUs")
+		except RuntimeError as e:
+			# Memory growth must be set before GPUs have been initialized
+			print(e)
+
+liberando_memoria_gpu()
 
 init_channels = 16
-train_folder = r"E:\Ricardo\Datasets\0-BASES DE ARTIGOS\CDPhotoDataset\train"
-validation_folder = r"E:\Ricardo\Datasets\0-BASES DE ARTIGOS\CDPhotoDataset\validation"
-type_save_image = ".png"
-type_of_images = "*.png"
-__DEF_HEIGHT = 512
-__DEF_WIDTH = 512
-input_channels = 1
-train_steps = 1
-valid_steps = 1
+train_folder = 'dataset/train/image/'
+train_mask_folder = 'dataset/train/label/'
+validation_folder = 'dataset/test/image/'
+validation_mask_folder = 'dataset/test/label/'
+type_save_image = ".jpg"
+type_of_images = "*.jpg"
+__DEF_HEIGHT = 256
+__DEF_WIDTH = 256
+input_channels = 3
+train_steps = 1000
+valid_steps = 16
 qtd_epochs = 10000
 #train_samples = 22092 #Smartdoc Dataset 2
 #valid_samples = 7430 #Smartdoc Dataset 2
 
-train_samples = 10264 #CDPHOTO Dataset
-valid_samples = 1140 #CDPHOTO Dataset
+train_samples = 500 #CDPHOTO Dataset
+valid_samples = 500 #CDPHOTO Dataset
 
-bs = 2
+bs = 32
 learning_rate = 0.0001
 path_to_save_new_model = "checkpoint"
 output_refined = "output"
@@ -73,9 +92,15 @@ def generator_batch(fns, bs, validation=False, stroke=True):
                     gt = "gt"+type_save_image
 
                 if input_channels == 1:
-                    mask = cv2.imread(fn.replace("in"+type_save_image, gt), cv2.IMREAD_GRAYSCALE)
+                    if validation:
+                        mask = cv2.imread(fn.replace(validation_folder, validation_mask_folder), cv2.IMREAD_GRAYSCALE)
+                    else:
+                        mask = cv2.imread(fn.replace(train_folder, train_mask_folder), cv2.IMREAD_GRAYSCALE)
                 else:
-                    mask = cv2.imread(fn.replace("in" + type_save_image, gt))
+                    if validation:
+                        mask = cv2.imread(fn.replace(validation_folder, validation_mask_folder))
+                    else:
+                        mask = cv2.imread(fn.replace(train_folder, train_mask_folder))
                 if mask is None:
                     print(fn)
                     continue
@@ -99,10 +124,12 @@ def dice_coef(y_true, y_pred, smooth=1000.0):
     y_true_f = K.flatten(y_true)
     y_pred_f = K.flatten(y_pred)
     intersection = K.sum(y_true_f * y_pred_f)
-    return (2. * intersection + smooth) / (K.sum(y_true_f) + K.sum(y_pred_f) + smooth)
+    union = K.sum(y_true_f) + K.sum(y_pred_f)
+
+    return (intersection + smooth) / (union + smooth)
 
 def dice_coef_loss(y_true, y_pred):
-    return -dice_coef(y_true, y_pred)
+    return 1-dice_coef(y_true, y_pred)
 
 def octHu_PageScan():
 
@@ -151,7 +178,7 @@ def octHu_PageScan():
     model = Model(inputs=inputs, outputs=conv_10)
     model.compile(optimizer=Adam(lr=learning_rate), loss=dice_coef_loss, metrics=[dice_coef])
 
-    model.summary()
+    #model.summary()
 
     return model
 
@@ -177,12 +204,12 @@ def main(train_steps, valid_steps, train_samples, valid_samples, bs, train_fns, 
     monitor_mode = 'min'
 
     model = octHu_PageScan()
-    model.summary()
-    checkpoint_model_best = ModelCheckpoint(path_to_save_new_model + '/%s.hdf5' % '0_best_model',
+    #model.summary()
+    checkpoint_model_best = ModelCheckpoint(path_to_save_new_model + '/%s.hdf5' % '{epoch:05d}_best_model',
                                             monitor=monitor, save_best_only=True, verbose=1, mode=monitor_mode)
 
     check_before_epochs = ModelCheckpoint(path_to_save_new_model + '/model_{epoch:05d}.h5',
-                                          monitor=monitor, period=1000, verbose=1, mode=monitor_mode)
+                                          monitor=monitor, period=100, verbose=1, mode=monitor_mode)
 
     callbacks.append(EarlyStopping(
         monitor=monitor, patience=30, verbose=1, mode=monitor_mode,

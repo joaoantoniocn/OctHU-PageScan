@@ -11,7 +11,10 @@ import threading
 from keras.optimizers import Adam
 import numpy as np
 from keras_octave_conv import OctaveConv2D, octave_dual
-from cRelu import cRelu
+#from cRelu import cRelu
+import tensorflow as tf
+
+cRelu = tf.nn.crelu
 
 cardinality = 1
 
